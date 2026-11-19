@@ -1,5 +1,5 @@
 /* Leonida Journal service worker: offline shell + receives photos shared from other apps. */
-const CACHE = 'leonida-v1';
+const CACHE = 'leonida-v3';
 const SHELL = ['./', 'index.html', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -25,11 +25,13 @@ function openDB() {
 async function stashShared(request) {
   const form = await request.formData();
   const files = form.getAll('photos').filter(f => f && typeof f !== 'string');
-  if (files.length) {
+  const text = ['title', 'text', 'url'].map(k => form.get(k)).filter(v => typeof v === 'string' && v.trim()).join(' ');
+  if (files.length || text) {
     const db = await openDB();
     await new Promise((res, rej) => {
       const t = db.transaction('inbox', 'readwrite');
       files.forEach(f => t.objectStore('inbox').add({ file: f, name: f.name, at: Date.now() }));
+      if (!files.length && text) t.objectStore('inbox').add({ text, at: Date.now() });
       t.oncomplete = res; t.onerror = () => rej(t.error);
     });
   }
@@ -48,17 +50,21 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.open(CACHE).then(async c => {
       const hit = await c.match(e.request);
       if (hit) return hit;
-      const res = await fetch(e.request);
-      c.put(e.request, res.clone());
-      return res;
+      try { const res = await fetch(e.request); if (res.ok) c.put(e.request, res.clone()); return res; }
+      catch (err) { return Response.error(); }
     }));
     return;
   }
   if (url.origin !== location.origin) return;
-  // App files: serve from cache, refresh in the background.
+  // App files: fresh from the network when online (so updates arrive), cached copy when offline.
   e.respondWith(caches.open(CACHE).then(async c => {
-    const hit = await c.match(e.request, { ignoreSearch: true });
-    const net = fetch(e.request).then(res => { if (res.ok) c.put(e.request, res.clone()); return res; }).catch(() => hit);
-    return hit || net;
+    try {
+      const res = await Promise.race([fetch(e.request), new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 3500))]);
+      if (res.ok) c.put(e.request, res.clone());
+      return res;
+    } catch (err) {
+      const hit = await c.match(e.request, { ignoreSearch: true });
+      return hit || Response.error();
+    }
   }));
 });

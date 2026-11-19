@@ -20,6 +20,7 @@
     "params": {
       "title": "title",
       "text": "text",
+      "url": "url",
       "files": [{ "name": "photos", "accept": ["image/*", "image/jpeg", "image/png", "image/webp"] }]
     }
   }

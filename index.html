@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#16131D">
 <title>Leonida Journal</title>
 <link rel="manifest" href="manifest.json">
@@ -20,12 +20,12 @@
   --navh:84px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:15px}
+html,body{margin:0;height:100%;overscroll-behavior:none;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:15px}
 body{overscroll-behavior:none}
 button,input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 button{cursor:pointer}
 a{color:var(--teal)}
-#view{position:fixed;inset:0 0 var(--navh) 0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+#view{overscroll-behavior:contain;position:fixed;inset:0 0 var(--navh) 0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
 #view.full{bottom:0}
 .wrap{max-width:560px;margin:0 auto;padding:0 20px 28px}
 .hidden{display:none!important}
@@ -80,7 +80,7 @@ a{color:var(--teal)}
 /* sheet */
 #scrim{position:fixed;inset:0;background:rgba(5,4,8,.7);z-index:20;opacity:0;pointer-events:none;transition:opacity .2s}
 #scrim.on{opacity:1;pointer-events:auto}
-#sheet{position:fixed;left:0;right:0;bottom:0;max-height:92%;background:var(--surface);border-radius:22px 22px 0 0;z-index:21;transform:translateY(105%);transition:transform .25s ease;overflow-y:auto;padding:10px 20px max(20px,env(safe-area-inset-bottom));box-shadow:0 -10px 30px rgba(0,0,0,.5)}
+#sheet{overscroll-behavior:contain;touch-action:pan-y;position:fixed;left:0;right:0;bottom:0;max-height:92%;background:var(--surface);border-radius:22px 22px 0 0;z-index:21;transform:translateY(105%);transition:transform .25s ease;overflow-y:auto;padding:10px 20px max(20px,env(safe-area-inset-bottom));box-shadow:0 -10px 30px rgba(0,0,0,.5)}
 #sheet.on{transform:none}
 #sheet .inner{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 .grab{align-self:center;width:40px;height:4px;border-radius:2px;background:#4A4156}
@@ -140,8 +140,8 @@ a{color:var(--teal)}
 .actions a,.actions .sec{height:52px;border-radius:14px;border:1px solid var(--teal);color:var(--teal);font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;background:none}
 
 /* map */
-#mapwrap{position:fixed;inset:0 0 var(--navh) 0;background:var(--fog);touch-action:none;overflow:hidden}
-#mapc{position:absolute;inset:0;width:100%;height:100%;display:block}
+#mapwrap{position:fixed;inset:0 0 var(--navh) 0;background:var(--fog);overflow:hidden}
+#mapc{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .maptop{position:absolute;left:0;right:0;top:0;padding:max(22px,env(safe-area-inset-top)) 20px 12px;background:linear-gradient(var(--fog) 60%,transparent);pointer-events:none}
 .maptop > *{pointer-events:auto}
 .maptop .brand{font-size:36px}

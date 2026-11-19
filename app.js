@@ -210,11 +210,17 @@ function toast(msg) {
 
 // ---------- layers (Android back button) ----------
 function pushLayer(name) { history.pushState({ layer: name }, ''); }
+let ignorePops = 0;
 window.addEventListener('popstate', () => {
+  if (ignorePops) { ignorePops--; return; }
   if (S.viewer) { hideViewer(); return; }
   if (S.sheetOpen) { hideSheet(); return; }
+  if (S.mapMode === 'pin') { finishPin(S.pinSaveFlag); S.pinSaveFlag = false; return; }
   if (S.tab === 'place') { S.tab = S.prevTab || 'home'; S.surprise = false; render(); return; }
+  if (S.tab !== 'home') { S.tab = 'home'; render(); return; }
+  history.back(); // nothing left to close: leave the app
 });
+function openSub(tab) { if (S.tab !== 'feed' && S.tab !== 'settings') pushLayer('sub'); S.tab = tab; render(); $('#view').scrollTop = 0; }
 
 // ---------- rendering ----------
 function render() {
@@ -284,7 +290,7 @@ function renderHome() {
   const recent = S.items.slice().sort((x, y) => y.createdAt - x.createdAt).slice(0, 6);
   const stale = staleList().slice(0, 2);
   const session = a
-    ? `<button class="pill live" data-act="endSession">${I.stop} Session ${a.n} · ${dur(Date.now() - a.start)}</button>`
+    ? `<button class="pill live" data-act="endSession" aria-label="End session ${a.n}">${I.stop} ${dur(Date.now() - a.start)} · End</button>`
     : `<button class="pill" data-act="startSession">${I.play} Start session</button>`;
   const next = nt && nt.text
     ? `<button class="postcard tilt-l" data-act="editNext" style="border:none;text-align:left;width:100%;margin-top:22px">
@@ -301,7 +307,7 @@ function renderHome() {
       : `<div class="empty" style="padding:12px">Your favourites and come-back places are all fresh. They'll show here once they've been waiting a while.</div>`}` : '';
   return `<div class="wrap">
     <div class="top">
-      <div><div class="brand">Leonida</div><div class="sub">Field journal</div></div>
+      <div><div class="brand">Leonida</div><div class="sub">${a ? 'Session ' + a.n + ' · live' : 'Field journal'}</div></div>
       <div style="display:flex;gap:8px;align-items:center"><button class="icon-btn" data-act="settings" aria-label="Settings and backup">${I.gear}</button>${session}</div>
     </div>
     ${next}
@@ -316,7 +322,7 @@ function renderHome() {
   </div>`;
 }
 
-function renderFeed() {
+function feedListHTML() {
   const q = S.feedQuery.trim().toLowerCase();
   const f = S.feedFilter;
   const list = S.items.filter(i => f === 'all' || i.type === f).filter(i => {
@@ -324,13 +330,17 @@ function renderFeed() {
     const vtext = (i.visits || []).map(v => v.note).join(' ');
     return [i.name, i.area, i.kind, i.text, i.title, i.artist, i.station, i.note, i.caption, vtext].join(' ').toLowerCase().includes(q);
   }).sort((a, b) => b.createdAt - a.createdAt);
+  return list.length ? list.map(itemRow).join('') : '<div class="empty">Nothing matches.</div>';
+}
+function renderFeed() {
+  const f = S.feedFilter;
   const chips = [['all', 'All'], ['place', 'Places'], ['detail', 'Details'], ['song', 'Songs'], ['photo', 'Photos']]
     .map(([v, l]) => `<button class="chip ${f === v ? 'on' : ''}" data-act="feedFilter" data-v="${v}">${l}</button>`).join('');
   return `<div class="wrap">
     <div class="top"><h1 class="page">Journal</h1><button class="icon-btn" data-act="tab" data-v="home" aria-label="Back to home">${I.left}</button></div>
     <input class="search" id="feedSearch" type="search" placeholder="Search your notes" value="${esc(S.feedQuery)}" aria-label="Search your notes">
     <div class="hscroll" style="margin-top:12px">${chips}</div>
-    <div class="feed" style="margin-top:16px">${list.length ? list.map(itemRow).join('') : '<div class="empty">Nothing matches.</div>'}</div>
+    <div class="feed" id="feedList" style="margin-top:16px">${feedListHTML()}</div>
   </div>`;
 }
 
@@ -444,7 +454,8 @@ function openCapture(type, existing, preset) {
     S.draft.mode = 'edit'; S.draft.photos = []; S.draft.areaKeep = false;
   } else {
     S.draft = { mode: 'new', type: type || 'place', name: '', area: '', kind: '', note: '', mark: 'found', times: [], rain: false, pin: null,
-      photos: preset.photos || [], placeId: preset.placeId || '', title: '', artist: '', station: '', text: '', caption: '', areaKeep: false };
+      photos: preset.photos || [], placeId: preset.placeId || '', title: preset.title || '', artist: preset.artist || '', station: '', text: '', caption: '', areaKeep: false };
+    if (preset.note) S.draft.note = preset.note;
   }
   openSheet(captureHTML);
 }
@@ -497,6 +508,7 @@ function captureHTML() {
     h += `<div class="field"><label class="label" for="cPlace">At a place?</label><select id="cPlace">${placeOptions(d.placeId)}</select></div>`;
     if (isNew) { h += thumbsHTML(d); h += `<button class="ghost" data-act="cPhoto">${I.cam}Add photo</button>`; }
   } else if (d.type === 'song') {
+    if (d.mode === 'new' && !d.title) h += `<div style="font-size:13px;color:var(--muted);line-height:1.5">Faster: identify it with Shazam or Google, tap <b>Share</b> there and pick <b>Leonida</b>. It lands here filled in.</div>`;
     h += `<div class="field"><label class="label" for="cTitle">Song</label><input id="cTitle" value="${esc(d.title)}" placeholder="Title"></div>`;
     h += `<div class="two"><div class="field"><label class="label" for="cArtist">Artist</label><input id="cArtist" value="${esc(d.artist)}"></div>
       <div class="field"><label class="label" for="cStation">Station</label><input id="cStation" value="${esc(d.station)}" list="stationList" autocomplete="off"></div></div>
@@ -589,7 +601,7 @@ async function deleteFromDraft() {
     for (const it of S.items.filter(i => i.placeId === d.id)) { it.placeId = ''; await saveItem(it); }
     await deleteItem(d.id);
     S.draft = null;
-    if (S.tab === 'place') { hideSheet(); S.tab = S.prevTab || 'home'; history.go(-2); }
+    if (S.tab === 'place') { hideSheet(); S.tab = S.prevTab || 'home'; ignorePops = 1; history.go(-2); }
     else closeSheet();
     render(); toast('Place deleted');
     return;
@@ -608,7 +620,7 @@ async function startSession() {
 function endSessionSheet() {
   const a = activeSession(); if (!a) return;
   openSheet(() => `${sheetHead('End Session ' + a.n)}
-    <div class="label" style="text-transform:none;letter-spacing:0;font-size:13px">${dur(Date.now() - a.start)} in Leonida</div>
+    <div class="label" style="text-transform:none;letter-spacing:0;font-size:13px">${Date.now() - a.start > 8 * 3600000 ? 'This session has been open since ' + new Date(a.start).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + '. It’ll be ended at your last entry so your hours stay honest.' : dur(Date.now() - a.start) + ' in Leonida'}</div>
     <div class="field"><label class="label" for="eWhere">Where did you go?</label><textarea id="eWhere" class="paper" placeholder="Where you drove, what you found…"></textarea></div>
     <div class="field"><label class="label" for="eNext">Next time</label><textarea id="eNext" class="paper" placeholder="One thing to do next session">${esc((S.meta.nextTime && S.meta.nextTime.text) || '')}</textarea></div>
     <button class="primary" data-act="eSave">End session</button>`);
@@ -616,6 +628,12 @@ function endSessionSheet() {
 async function endSessionSave() {
   const a = activeSession(); if (!a) return;
   a.end = Date.now(); a.notes = ($('#eWhere').value || '').trim();
+  if (a.end - a.start > 8 * 3600000) {
+    let last = 0;
+    S.items.forEach(i => { if (i.sessionId === a.id) last = Math.max(last, i.createdAt); (i.visits || []).forEach(v => { if (v.sessionId === a.id) last = Math.max(last, v.at); }); });
+    a.end = last ? last + 20 * 60000 : a.start + 2 * 3600000;
+    toast('Looks like this one was left running, so I ended it at your last entry');
+  }
   await saveSession(a);
   const nt = ($('#eNext').value || '').trim();
   await setMeta('nextTime', nt ? { text: nt, fromN: a.n, at: Date.now() } : null);
@@ -708,7 +726,7 @@ function renderViewer() {
       <div style="font-size:12px;color:var(--muted)">${ago(p.createdAt)}${p.sessionId ? ' · ' + sessionLabel(p.sessionId) : ''}</div>
     </div>`;
   hydrate($('#viewer'));
-  $('#vCap').onchange = async e => { p.caption = e.target.value.trim(); await saveItem(p); toast('Caption saved'); };
+  let capT; $('#vCap').oninput = e => { clearTimeout(capT); const val = e.target.value.trim(); capT = setTimeout(async () => { p.caption = val; await saveItem(p); }, 400); };
   $('#vPlace').onchange = async e => { p.placeId = e.target.value; await saveItem(p); toast('Linked'); };
 }
 function hideViewer() { S.viewer = null; $('#viewer').classList.add('hidden'); $('#viewer').innerHTML = ''; render(); }
@@ -901,7 +919,7 @@ function startPinMode(ret, placeId) {
   S.pinPrevTab = S.tab === 'place' ? S.prevTab : S.tab;
   const existing = ret === 'capture' ? S.draft.pin : (byId(placeId) || {}).pin;
   M.temp = existing ? Object.assign({}, existing) : null;
-  if (S.tab === 'place') { S.tab = 'map'; history.back(); } // drop the place layer
+  if (S.tab === 'place') history.replaceState({ layer: 'pin' }, ''); else pushLayer('pin');
   S.mapMode = 'pin'; S.tab = 'map'; S.mapSel = null;
   if (existing) S.mapFocusPt = existing;
   render();
@@ -957,15 +975,29 @@ async function importData() {
 }
 
 // ---------- shared photos (from PS App share sheet) ----------
+// Turns text shared from Shazam, Google, YouTube Music, Spotify etc. into a song title + artist.
+function parseSong(raw) {
+  let t = String(raw || '').replace(/https?:\/\/\S+/g, ' ').replace(/\s+/g, ' ').trim();
+  t = t.replace(/^(i used shazam to discover|check out|listen to|now playing:?|i'?m listening to)\s+/i, '')
+       .replace(/\s*(on|via) (shazam|spotify|youtube music|youtube|apple music|soundcloud|google)\b.*$/i, '')
+       .replace(/[.!\s]+$/, '');
+  let m = t.match(/^["“]?(.+?)["”]?\s+by\s+(.+)$/i);
+  if (m) return { title: m[1].trim(), artist: m[2].trim() };
+  m = t.match(/^(.+?)\s+[-–—·]\s+(.+)$/);
+  if (m) return { title: m[1].trim(), artist: m[2].trim() };
+  return { title: t, artist: '' };
+}
 async function checkInbox() {
   const inbox = await idb.all('inbox');
   if (!inbox.length) return;
-  const photos = [];
+  const photos = []; let song = null;
   for (const rec of inbox) {
     if (rec.file) { const b = await compress(rec.file); photos.push({ blob: b, url: URL.createObjectURL(b) }); }
+    else if (rec.text && !song) song = parseSong(rec.text);
     await idb.del('inbox', rec.id);
   }
   if (photos.length) openCapture('photo', null, { photos });
+  else if (song) { openCapture('song', null, song); toast('Got it from the share. Add the station?'); }
 }
 
 // ---------- events ----------
@@ -973,15 +1005,15 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('[data-act],[data-tab]');
   if (!t || t.disabled) return;
   const act = t.dataset.act, v = t.dataset.v, id = t.dataset.id;
-  if (t.dataset.tab) { S.tab = t.dataset.tab; S.surprise = false; if (S.mapMode === 'pin' && S.tab !== 'map') { S.mapMode = 'view'; M.temp = null; } render(); $('#view').scrollTop = 0; return; }
+  if (t.dataset.tab) { if (S.tab === 'feed' || S.tab === 'settings') { ignorePops = 1; history.back(); } S.tab = t.dataset.tab; S.surprise = false; if (S.mapMode === 'pin' && S.tab !== 'map') { S.mapMode = 'view'; M.temp = null; } render(); $('#view').scrollTop = 0; return; }
   const p = S.tab === 'place' ? byId(S.placeId) : null;
   switch (act) {
-    case 'tab': S.tab = v; render(); break;
+    case 'tab': if (v === 'home' && (S.tab === 'feed' || S.tab === 'settings')) history.back(); else { S.tab = v; render(); } break;
     case 'new': openCapture('place'); break;
     case 'newSong': openCapture('song'); break;
     case 'newPhoto': openCapture('photo'); setTimeout(addDraftPhotos, 250); break;
-    case 'settings': S.tab = 'settings'; render(); break;
-    case 'seeAll': S.tab = 'feed'; render(); $('#view').scrollTop = 0; break;
+    case 'settings': openSub('settings'); break;
+    case 'seeAll': openSub('feed'); break;
     case 'startSession': startSession(); break;
     case 'endSession': endSessionSheet(); break;
     case 'eSave': endSessionSave(); break;
@@ -1008,7 +1040,7 @@ document.addEventListener('click', async e => {
     }
     case 'imBack': visitSheet(p, null); break;
     case 'editVisit': visitSheet(p, p.visits.find(x => x.id === id)); break;
-    case 'onMap': if (p.pin) { S.mapSel = p.id; S.mapFocus = p.id; S.mapFilter = 'all'; S.tab = 'map'; S.surprise = false; history.back(); render(); } else startPinMode('place', p.id); break;
+    case 'onMap': if (p.pin) { S.mapSel = p.id; S.mapFocus = p.id; S.mapFilter = 'all'; S.tab = 'map'; S.surprise = false; history.replaceState({ layer: 'root' }, ''); render(); } else startPinMode('place', p.id); break;
     case 'photoView': openViewer(id, t.dataset.set); break;
     case 'vClose': history.back(); break;
     case 'vPrev': S.viewer.i--; renderViewer(); break;
@@ -1022,8 +1054,8 @@ document.addEventListener('click', async e => {
     }
     case 'zin': zoomAt(M.cw / 2, M.ch / 2, 1.4); break;
     case 'zout': zoomAt(M.cw / 2, M.ch / 2, 1 / 1.4); break;
-    case 'pinCancel': finishPin(false); break;
-    case 'pinSave': finishPin(true); break;
+    case 'pinCancel': S.pinSaveFlag = false; history.back(); break;
+    case 'pinSave': S.pinSaveFlag = true; history.back(); break;
     case 'exportFile': exportData(false); break;
     case 'exportShare': exportData(true); break;
     case 'importFile': importData(); break;
@@ -1072,12 +1104,29 @@ document.addEventListener('input', e => {
   if (e.target.id === 'cArea' && S.draft) { S.draft.area = e.target.value; S.draft.areaKeep = false; const st = $('#areaStat'); if (st) st.innerHTML = areaStatHTML(S.draft); }
   if (e.target.id === 'feedSearch') {
     S.feedQuery = e.target.value;
-    const pos = e.target.selectionStart;
-    render();
-    const el = $('#feedSearch'); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (x) { /* ignore */ } }
+    const el = $('#feedList'); if (el) { el.innerHTML = feedListHTML(); hydrate(el); }
   }
 });
 $('#scrim').addEventListener('click', closeSheet);
+// Swipe the sheet down to close it.
+(function () {
+  const sh = $('#sheet'); let y0 = null, dy = 0, active = false;
+  sh.addEventListener('touchstart', e => {
+    if (sh.scrollTop > 0 || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) { y0 = null; return; }
+    y0 = e.touches[0].clientY; dy = 0; active = false;
+  }, { passive: true });
+  sh.addEventListener('touchmove', e => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy > 8 && sh.scrollTop <= 0) { active = true; sh.style.transition = 'none'; sh.style.transform = 'translateY(' + dy + 'px)'; e.preventDefault(); }
+  }, { passive: false });
+  sh.addEventListener('touchend', () => {
+    if (y0 == null) return;
+    sh.style.transition = ''; sh.style.transform = '';
+    if (active && dy > 110) closeSheet();
+    y0 = null; active = false;
+  });
+})();
 
 // ---------- boot ----------
 async function loadAll() {
